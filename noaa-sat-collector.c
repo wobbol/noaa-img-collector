@@ -28,6 +28,11 @@ char *get_date_time(time_t now)
 	while(t->tm_min % 10 != 1 && t->tm_min % 10 != 6) {
 		if(t->tm_min == 0) {
 			t->tm_hour--;
+			t->tm_min = 60;
+		}
+		if(t->tm_hour < 0) {
+			t->tm_hour = 23;
+			t->tm_yday--;
 		}
 		t->tm_min--;
 	}
@@ -38,6 +43,11 @@ char *get_date_time(time_t now)
 	while(t->tm_min % 10 != 1 && t->tm_min % 10 != 6) {
 		if(t->tm_min == 0) {
 			t->tm_hour--;
+			t->tm_min = 60;
+		}
+		if(t->tm_hour < 0) {
+			t->tm_hour = 23;
+			t->tm_yday--;
 		}
 		t->tm_min--;
 	}
@@ -49,7 +59,7 @@ char *get_date_time(time_t now)
 }
 char *get_filename(time_t now)
 {
-	static char ret[64];
+	static char ret[128];
 	char *date_time = get_date_time(now);
 	char sat[] = "GOES16";
 	char size[] = "416x250";
@@ -160,7 +170,11 @@ int resume(time_t start)
 		char *url = get_past_url(urlbase, start);
 		char *name = get_filename(start);
 		start += 5 * 60;
+			printf("checking %s\n", name);
+			fflush(stdout);
 		if(!file_exists(name)) {
+			printf("getting %s\n", name);
+			fflush(stdout);
 			do_curl(url, name, stdout);
 		}
 	}
@@ -171,6 +185,7 @@ int main(int argc, char *argv[])
 	if(argc > 1) {
 		resume(atoll(argv[1]));
 	}
+	printf("done resumeing\n");
 	poll_url_5_min();
 	return 0;
 }
