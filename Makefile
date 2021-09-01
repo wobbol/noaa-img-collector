@@ -1,2 +1,2 @@
-noaa-sat-collector: noaa-sat-collector.c
-	$(CC) -o noaa-sat-collector noaa-sat-collector.c -lrt -lcurl
+noaa-img-collector: noaa-img-collector.c
+	$(CC) -o noaa-img-collector noaa-img-collector.c -lrt -lcurl

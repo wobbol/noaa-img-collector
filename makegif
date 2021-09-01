@@ -1,0 +1,9 @@
+#!/bin/sh
+
+tmp=$(mktemp -d)
+for file in *.jpg; do
+	count=$(expr $count + 1)	
+	cp $file $tmp/$count.jpg
+done
+ffmpeg -f image2 -i $tmp/%d.jpg out.gif
+rm -rf $tmp

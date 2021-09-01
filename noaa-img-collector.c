@@ -98,7 +98,7 @@ int do_curl(char *url, FILE *out, FILE* err)
 	}
 	curl_easy_setopt(curl, CURLOPT_URL, url);
 	curl_easy_setopt(curl, CURLOPT_NOPROGRESS, 1);
-	curl_easy_setopt(curl, CURLOPT_USERAGENT, "stormwatch/v0.0.0");
+	curl_easy_setopt(curl, CURLOPT_USERAGENT, "noaa-img-collector/v0.0.0");
 	curl_easy_setopt(curl, CURLOPT_WRITEDATA, out);
 	curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, handle_curl_data);
 	curl_easy_setopt(curl, CURLOPT_ERRORBUFFER, curl_errorbuf);
