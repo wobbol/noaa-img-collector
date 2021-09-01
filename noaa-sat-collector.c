@@ -182,8 +182,11 @@ int resume(time_t start, struct data_source *i)
 			printf("getting %s\n", name);
 			fflush(stdout);
 			FILE *out = fopen(name, "w");
-			do_curl(url, out, stdout);
+			int err = do_curl(url, out, stdout);
 			fclose(out);
+			if(err) {
+				remove(name);
+			}
 		}
 	}
 	return 0;
