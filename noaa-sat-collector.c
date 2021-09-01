@@ -9,9 +9,17 @@
 
 #define MAX_URL_SZ 256
 
+struct data_source {
+	char urlbase[MAX_URL_SZ];
+	char satalite[32];
+	char size[32];
+	int band;
+};
+
 struct ctx {
 	char url[MAX_URL_SZ];
 	FILE *err;
+	struct data_source *d;
 };
 
 size_t handle_curl_data(const unsigned char *ptr, size_t size, size_t nmemb, void *userdata)
@@ -20,11 +28,9 @@ size_t handle_curl_data(const unsigned char *ptr, size_t size, size_t nmemb, voi
 	FILE *out = userdata;
 	return fwrite(ptr, size, nmemb, out);
 }
-char *get_date_time(time_t now)
-{
-	static char ret[32];
-	struct tm *t = gmtime(&now);
 
+void on_the_1s_and_6s(struct tm *t)
+{
 	while(t->tm_min % 10 != 1 && t->tm_min % 10 != 6) {
 		if(t->tm_min == 0) {
 			t->tm_hour--;
@@ -34,126 +40,128 @@ char *get_date_time(time_t now)
 			t->tm_hour = 23;
 			t->tm_yday--;
 		}
+		if(t->tm_yday < 0) {
+			t->tm_yday = 365;
+		}
 		t->tm_min--;
 	}
+}
+
+char *get_date_time(time_t time)
+{
+	static char ret[32];
+	struct tm *t = gmtime(&time);
+
+	on_the_1s_and_6s(t);
 	/* there are never any images released at 56 mins */
 	if(t->tm_min % 100 == 56) {
 		t->tm_min--;
 	}
-	while(t->tm_min % 10 != 1 && t->tm_min % 10 != 6) {
-		if(t->tm_min == 0) {
-			t->tm_hour--;
-			t->tm_min = 60;
-		}
-		if(t->tm_hour < 0) {
-			t->tm_hour = 23;
-			t->tm_yday--;
-		}
-		t->tm_min--;
-	}
+	on_the_1s_and_6s(t);
 	//snprintf(ret, sizeof(ret), "%4.4d-%3.3d-%2.2d-%2.2d",
 	snprintf(ret, sizeof(ret), "%4.4d%3.3d%2.2d%2.2d",
 			t->tm_year + 1900, t->tm_yday + 1,
 			t->tm_hour, t->tm_min);
 	return ret;
 }
-char *get_filename(time_t now)
+char *get_filename(struct data_source *d, time_t time)
 {
 	static char ret[128];
-	char *date_time = get_date_time(now);
-	char sat[] = "GOES16";
-	char size[] = "416x250";
-	int band = 13;
+	char *date_time = get_date_time(time);
 
 	// 20212421346_GOES16-ABI-CONUS-13-416x250.jpg
 	// yyyydddnnnn_SSSSSS-ABI-CONUS-bb-zzzzzzz.jpg
 
 	snprintf(ret, sizeof(ret),"%s_%s-ABI-CONUS-%d-%s.jpg",
-			date_time, sat, band, size);
+			date_time, d->satalite, d->band, d->size);
 	return ret;
 }
-char *get_past_url(char *urlbase, time_t now)
+char *get_past_url(struct data_source *d, char *filename, time_t time)
 {
 	static char u[MAX_URL_SZ];
-	char *filename = get_filename(now);
-	char sat[] = "GOES16";
-	char size[] = "416x250";
-	int band = 13;
 
-	snprintf(u, sizeof(u),"%s/%s/ABI/CONUS/13/%s",
-			urlbase, sat, filename);
+	snprintf(u, sizeof(u),"%s/%s/ABI/CONUS/%d/%s",
+			d->urlbase, d->satalite, d->band, filename);
 	return u;
 }
 
-void do_curl(char *url, char *pathname, FILE* err)
+int do_curl(char *url, FILE *out, FILE* err)
 {
-	FILE *output = fopen(pathname, "w");
 
-
-	//do the curl thing
 	CURL *curl;
 	CURLcode curl_res;
 	char curl_errorbuf[CURL_ERROR_SIZE];
 	if(!(curl = curl_easy_init())) {
 		fprintf(err, "could not init curl\n");
 		fflush(err);
-		return;
+		return 1;
 	}
 	curl_easy_setopt(curl, CURLOPT_URL, url);
 	curl_easy_setopt(curl, CURLOPT_NOPROGRESS, 1);
 	curl_easy_setopt(curl, CURLOPT_USERAGENT, "stormwatch/v0.0.0");
-	curl_easy_setopt(curl, CURLOPT_WRITEDATA, output);
+	curl_easy_setopt(curl, CURLOPT_WRITEDATA, out);
 	curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, handle_curl_data);
 	curl_easy_setopt(curl, CURLOPT_ERRORBUFFER, curl_errorbuf);
 	curl_res = curl_easy_perform(curl);
 	if(curl_res) {
 		fprintf(err, "%s\n", curl_errorbuf);
 		fflush(err);
-		return;
+		return 1;
 	}
 	curl_easy_cleanup(curl);
-	fclose(output);
+	return 0;
 }
-void thread_function(union sigval sv)
+void thread_poll_current(union sigval sv)
 {
 	struct ctx *c = sv.sival_ptr;
 	fprintf(c->err, "doing the thing\n");
-	//fflush(c->err);
+	fflush(c->err);
 
-	int now = (int)time(NULL);
-	char *filename = get_filename(now);
+	FILE *output = fopen(get_filename(c->d, time(NULL)), "w");
 
-	//do the curl thing
-	do_curl(c->url, filename, c->err);
+	do_curl(c->url, output, c->err);
+
+	fclose(output);
 }
-
-int poll_url_5_min()
+timer_t create_thread_timer(struct ctx *c)
 {
 	clockid_t c_id = CLOCK_MONOTONIC;
-	struct ctx c = {
-		.err = stdout,
-		.url =  "https://cdn.star.nesdis.noaa.gov/GOES16/ABI/CONUS/13/416x250.jpg",
-		//.url =  "https://cdn.star.nesdis.noaa.gov/GOES16/ABI/CONUS/13/5000x3000.jpg",
-	};
 	struct sigevent evp = {
 		.sigev_notify = SIGEV_THREAD,
-		.sigev_value = {.sival_ptr = &c},
-		.sigev_notify_function = thread_function,
+		.sigev_value = {.sival_ptr = c},
+		.sigev_notify_function = thread_poll_current,
 	};
 	timer_t t_id;
 	timer_create(c_id, &evp, &t_id);
+	return t_id;
+}
+void start_recuring_thread(timer_t t_id, time_t interval)
+{
 	int flags = TIMER_ABSTIME;
-	//int flags = 0;
-	struct timespec time_1 = { .tv_sec = 1, };
-	struct timespec time_5 = { .tv_sec = 5 * 60, };
 	struct itimerspec val = {
-		.it_value = time_1,
-		.it_interval = time_5,
+		.it_value = {.tv_sec = 1}, /* with TIMER_ABSTIME this means ASAP. */
+		.it_interval = {.tv_sec = interval, },
 	};
 	struct itimerspec oval;
 
 	timer_settime(t_id, flags, &val, &oval);
-	for(;;) {
+}
+
+void init_ctx(struct ctx *c, struct data_source *d)
+{
+	c->err = stdout;
+	snprintf(c->url, sizeof(c->url), "%s/%s/ABI/CONUS/%d/%s.jpg",
+			d->urlbase, d->satalite, d->band, d->size);
+	c->d = d;
+	//c->url = "https://cdn.star.nesdis.noaa.gov/GOES16/ABI/CONUS/13/416x250.jpg",
+	//c->url = "https://cdn.star.nesdis.noaa.gov/GOES16/ABI/CONUS/13/5000x3000.jpg",
+}
+int noret_poll_url(struct ctx *c)
+{
+	timer_t t_id = create_thread_timer(c);
+	time_t min5 = 5 * 60;
+	start_recuring_thread(t_id, min5);
+	for(;;) { /* keep alive to continue spawning threads */
 		sleep(60);
 	}
 	return 0;
@@ -162,30 +170,38 @@ int file_exists(char *fname)
 {
 	return access( fname, F_OK ) == 0;
 }
-int resume(time_t start)
+int resume(time_t start, struct data_source *i)
 {
-
-	char urlbase[] = "https://cdn.star.nesdis.noaa.gov/";
 	while(start < time(NULL)) {
-		char *url = get_past_url(urlbase, start);
-		char *name = get_filename(start);
+		char *name = get_filename(i, start);
+		char *url = get_past_url(i, name, start);
 		start += 5 * 60;
 			printf("checking %s\n", name);
 			fflush(stdout);
 		if(!file_exists(name)) {
 			printf("getting %s\n", name);
 			fflush(stdout);
-			do_curl(url, name, stdout);
+			FILE *out = fopen(name, "w");
+			do_curl(url, out, stdout);
+			fclose(out);
 		}
 	}
 	return 0;
 }
 int main(int argc, char *argv[])
 {
+	struct data_source i = {
+		.urlbase = "https://cdn.star.nesdis.noaa.gov",
+		.band = 13,
+		.satalite = "GOES16",
+		.size = "416x250",
+	};
 	if(argc > 1) {
-		resume(atoll(argv[1]));
+		resume(atoll(argv[1]), &i);
 	}
 	printf("done resumeing\n");
-	poll_url_5_min();
+	struct ctx c;
+	init_ctx(&c, &i);
+	noret_poll_url(&c);
 	return 0;
 }
