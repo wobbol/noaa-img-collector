@@ -7,6 +7,8 @@
 #include <unistd.h>
 #include <unistd.h>
 
+#include "curl.h"
+
 #define MAX_URL_SZ 256
 
 struct data_source {
@@ -21,13 +23,6 @@ struct ctx {
 	FILE *err;
 	struct data_source *d;
 };
-
-size_t handle_curl_data(const unsigned char *ptr, size_t size, size_t nmemb, void *userdata)
-{
-	assert(size == 1);
-	FILE *out = userdata;
-	return fwrite(ptr, size, nmemb, out);
-}
 
 void on_the_1s_and_6s(struct tm *t)
 {
@@ -85,32 +80,6 @@ char *get_past_url(struct data_source *d, char *filename, time_t time)
 	return u;
 }
 
-int do_curl(char *url, FILE *out, FILE* err)
-{
-
-	CURL *curl;
-	CURLcode curl_res;
-	char curl_errorbuf[CURL_ERROR_SIZE];
-	if(!(curl = curl_easy_init())) {
-		fprintf(err, "could not init curl\n");
-		fflush(err);
-		return 1;
-	}
-	curl_easy_setopt(curl, CURLOPT_URL, url);
-	curl_easy_setopt(curl, CURLOPT_NOPROGRESS, 1);
-	curl_easy_setopt(curl, CURLOPT_USERAGENT, "noaa-img-collector/v0.0.0");
-	curl_easy_setopt(curl, CURLOPT_WRITEDATA, out);
-	curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, handle_curl_data);
-	curl_easy_setopt(curl, CURLOPT_ERRORBUFFER, curl_errorbuf);
-	curl_res = curl_easy_perform(curl);
-	if(curl_res) {
-		fprintf(err, "%s\n", curl_errorbuf);
-		fflush(err);
-		return 1;
-	}
-	curl_easy_cleanup(curl);
-	return 0;
-}
 void thread_poll_current(union sigval sv)
 {
 	struct ctx *c = sv.sival_ptr;
