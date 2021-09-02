@@ -7,4 +7,5 @@
 
 char *url_get_filename(struct data_source *d, time_t time);
 char *url_get_past(struct data_source *d, char *filename, time_t time);
+char *url_get_current(struct data_source *d);
 #endif

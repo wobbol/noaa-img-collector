@@ -60,3 +60,11 @@ char *url_get_past(struct data_source *d, char *filename, time_t time)
 	return u;
 }
 
+char *url_get_current(struct data_source *d)
+{
+	static char u[256];
+	// https://cdn.star.nesdis.noaa.gov/GOES16/ABI/CONUS/13/5000x3000.jpg
+	snprintf(u, sizeof(u), "%s/%s/ABI/CONUS/%d/%s.jpg",
+			d->urlbase, d->satalite, d->band, d->size);
+	return u;
+}

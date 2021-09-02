@@ -9,15 +9,9 @@
 
 #include "curl.h"
 #include "url.h"
+#include "poll.h"
+#include "ctx.h"
 #include "data_source.h"
-
-#define MAX_URL_SZ 256
-
-struct ctx {
-	char url[MAX_URL_SZ];
-	FILE *err;
-	struct data_source *d;
-};
 
 static int file_exists(char *fname)
 {
@@ -58,49 +52,6 @@ void thread_poll_current(union sigval sv)
 
 	fclose(output);
 }
-timer_t create_thread_timer(struct ctx *c)
-{
-	clockid_t c_id = CLOCK_MONOTONIC;
-	struct sigevent evp = {
-		.sigev_notify = SIGEV_THREAD,
-		.sigev_value = {.sival_ptr = c},
-		.sigev_notify_function = thread_poll_current,
-	};
-	timer_t t_id;
-	timer_create(c_id, &evp, &t_id);
-	return t_id;
-}
-void start_recuring_thread(timer_t t_id, time_t interval)
-{
-	int flags = TIMER_ABSTIME;
-	struct itimerspec val = {
-		.it_value = {.tv_sec = 1}, /* with TIMER_ABSTIME this means ASAP. */
-		.it_interval = {.tv_sec = interval, },
-	};
-	struct itimerspec oval;
-
-	timer_settime(t_id, flags, &val, &oval);
-}
-
-void init_ctx(struct ctx *c, struct data_source *d)
-{
-	c->err = stdout;
-	snprintf(c->url, sizeof(c->url), "%s/%s/ABI/CONUS/%d/%s.jpg",
-			d->urlbase, d->satalite, d->band, d->size);
-	c->d = d;
-	//c->url = "https://cdn.star.nesdis.noaa.gov/GOES16/ABI/CONUS/13/416x250.jpg",
-	//c->url = "https://cdn.star.nesdis.noaa.gov/GOES16/ABI/CONUS/13/5000x3000.jpg",
-}
-int noret_poll_url(struct ctx *c)
-{
-	timer_t t_id = create_thread_timer(c);
-	time_t min5 = 5 * 60;
-	start_recuring_thread(t_id, min5);
-	for(;;) { /* keep alive to continue spawning threads */
-		sleep(60);
-	}
-	return 0;
-}
 int main(int argc, char *argv[])
 {
 	struct data_source i = {
@@ -115,6 +66,6 @@ int main(int argc, char *argv[])
 	printf("done resumeing\n");
 	struct ctx c;
 	init_ctx(&c, &i);
-	noret_poll_url(&c);
+	poll_url_noret(&c, thread_poll_current);
 	return 0;
 }
