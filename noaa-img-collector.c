@@ -8,15 +8,10 @@
 #include <unistd.h>
 
 #include "curl.h"
+#include "url.h"
+#include "data_source.h"
 
 #define MAX_URL_SZ 256
-
-struct data_source {
-	char urlbase[MAX_URL_SZ];
-	char satalite[32];
-	char size[32];
-	int band;
-};
 
 struct ctx {
 	char url[MAX_URL_SZ];
@@ -24,60 +19,31 @@ struct ctx {
 	struct data_source *d;
 };
 
-void on_the_1s_and_6s(struct tm *t)
+static int file_exists(char *fname)
 {
-	while(t->tm_min % 10 != 1 && t->tm_min % 10 != 6) {
-		if(t->tm_min == 0) {
-			t->tm_hour--;
-			t->tm_min = 60;
+	return access( fname, F_OK ) == 0;
+}
+
+int resume(time_t start, struct data_source *i)
+{
+	while(start < time(NULL)) {
+		char *name = url_get_filename(i, start);
+		char *url = url_get_past(i, name, start);
+		start += 5 * 60;
+			printf("checking %s\n", name);
+			fflush(stdout);
+		if(!file_exists(name)) {
+			printf("getting %s\n", name);
+			fflush(stdout);
+			FILE *out = fopen(name, "w");
+			int err = do_curl(url, out, stdout);
+			fclose(out);
+			if(err) {
+				remove(name);
+			}
 		}
-		if(t->tm_hour < 0) {
-			t->tm_hour = 23;
-			t->tm_yday--;
-		}
-		if(t->tm_yday < 0) {
-			t->tm_yday = 365;
-		}
-		t->tm_min--;
 	}
-}
-
-char *get_date_time(time_t time)
-{
-	static char ret[32];
-	struct tm *t = gmtime(&time);
-
-	on_the_1s_and_6s(t);
-	/* there are never any images released at 56 mins */
-	if(t->tm_min % 100 == 56) {
-		t->tm_min--;
-	}
-	on_the_1s_and_6s(t);
-	//snprintf(ret, sizeof(ret), "%4.4d-%3.3d-%2.2d-%2.2d",
-	snprintf(ret, sizeof(ret), "%4.4d%3.3d%2.2d%2.2d",
-			t->tm_year + 1900, t->tm_yday + 1,
-			t->tm_hour, t->tm_min);
-	return ret;
-}
-char *get_filename(struct data_source *d, time_t time)
-{
-	static char ret[128];
-	char *date_time = get_date_time(time);
-
-	// 20212421346_GOES16-ABI-CONUS-13-416x250.jpg
-	// yyyydddnnnn_SSSSSS-ABI-CONUS-bb-zzzzzzz.jpg
-
-	snprintf(ret, sizeof(ret),"%s_%s-ABI-CONUS-%d-%s.jpg",
-			date_time, d->satalite, d->band, d->size);
-	return ret;
-}
-char *get_past_url(struct data_source *d, char *filename, time_t time)
-{
-	static char u[MAX_URL_SZ];
-
-	snprintf(u, sizeof(u),"%s/%s/ABI/CONUS/%d/%s",
-			d->urlbase, d->satalite, d->band, filename);
-	return u;
+	return 0;
 }
 
 void thread_poll_current(union sigval sv)
@@ -86,7 +52,7 @@ void thread_poll_current(union sigval sv)
 	fprintf(c->err, "doing the thing\n");
 	fflush(c->err);
 
-	FILE *output = fopen(get_filename(c->d, time(NULL)), "w");
+	FILE *output = fopen(url_get_filename(c->d, time(NULL)), "w");
 
 	do_curl(c->url, output, c->err);
 
@@ -132,31 +98,6 @@ int noret_poll_url(struct ctx *c)
 	start_recuring_thread(t_id, min5);
 	for(;;) { /* keep alive to continue spawning threads */
 		sleep(60);
-	}
-	return 0;
-}
-int file_exists(char *fname)
-{
-	return access( fname, F_OK ) == 0;
-}
-int resume(time_t start, struct data_source *i)
-{
-	while(start < time(NULL)) {
-		char *name = get_filename(i, start);
-		char *url = get_past_url(i, name, start);
-		start += 5 * 60;
-			printf("checking %s\n", name);
-			fflush(stdout);
-		if(!file_exists(name)) {
-			printf("getting %s\n", name);
-			fflush(stdout);
-			FILE *out = fopen(name, "w");
-			int err = do_curl(url, out, stdout);
-			fclose(out);
-			if(err) {
-				remove(name);
-			}
-		}
 	}
 	return 0;
 }
